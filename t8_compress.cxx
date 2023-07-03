@@ -11,10 +11,13 @@
    Constants...
    ------------------------------------------------------------ */
 
+/* Maximum number of x values. */
 #define EX 2048
 
+/* Maximum number of y values. */
 #define EY 1024
 
+/* Maximum length of ASCII strings. */
 #define LEN 4096
 
 /* ------------------------------------------------------------
@@ -37,49 +40,49 @@
 
 /*! Find array index for irregular grid. */
 int locate_irr(
-  double *xx,
-  int n,
-  double x);
+	       double *xx,
+	       int n,
+	       double x);
 
 /* User data for adaptation callback. */
-struct t8_step3_adapt_data {
-  double              midpoint[3];      /* The midpoint of our sphere. */
-  double              refine_if_inside_radius;  /* if an element's center is smaller than this value, we refine the element. */
-  double              coarsen_if_outside_radius;        /* if an element's center is larger this value, we coarsen its family. */
+struct t8_adapt_data {
+  double midpoint[3];                  /* The midpoint of our sphere. */
+  double refine_if_inside_radius;      /* if an element's center is smaller than this value, we refine the element. */
+  double coarsen_if_outside_radius;    /* if an element's center is larger this value, we coarsen its family. */
 };
 
 /* Data per element. */
-struct t8_step5_data_per_element {
-  int                 level;
-  double              volume;
-  double              z;
+struct t8_data_per_element {
+  int level;
+  double volume;
+  double z;
 };
 
 /* Create element data. */
-static struct t8_step5_data_per_element *t8_step5_create_element_data (t8_forest_t forest,
-								       double x[EX],
-								       double y[EY],
-								       double z[EX][EY],
-								       int nx,
-								       int ny);
+static struct t8_data_per_element *t8_create_element_data (t8_forest_t forest,
+							   double x[EX],
+							   double y[EY],
+							   double z[EX][EY],
+							   int nx,
+							   int ny);
 
 /* Function used to adapt the forest. */
-t8_forest_t t8_step3_adapt_forest (t8_forest_t forest);
+t8_forest_t t8_adapt_forest (t8_forest_t forest);
 
 /* Callback function for adapting the forest. */
-int t8_step3_adapt_callback (t8_forest_t forest,
-			     t8_forest_t forest_from,
-			     t8_locidx_t which_tree,
-			     t8_locidx_t lelement_id,
-			     t8_eclass_scheme_c *ts,
-			     const int is_family,
-			     const int num_elements,
-			     t8_element_t *elements[]);
+int t8_adapt_callback (t8_forest_t forest,
+		       t8_forest_t forest_from,
+		       t8_locidx_t which_tree,
+		       t8_locidx_t lelement_id,
+		       t8_eclass_scheme_c *ts,
+		       const int is_family,
+		       const int num_elements,
+		       t8_element_t *elements[]);
 
 /* Write data to vtu file. */
-static void t8_step5_output_data_to_vtu (t8_forest_t forest,
-					 struct t8_step5_data_per_element *data,
-					 const char *prefix);
+static void t8_output_data_to_vtu (t8_forest_t forest,
+				   struct t8_data_per_element *data,
+				   const char *prefix);
 
 /* ------------------------------------------------------------
    Main...
@@ -140,16 +143,16 @@ int main (int argc, char **argv) {
   t8_forest_t forest = t8_forest_new_uniform (cmesh, t8_scheme_new_default_cxx (), level, 0, comm);
   
   /* Build data array and gather data for the local elements. */
-  t8_step5_data_per_element *data;
-  data = t8_step5_create_element_data (forest, x, y, z, nx, ny);
-
+  t8_data_per_element *data;
+  data = t8_create_element_data (forest, x, y, z, nx, ny);
+  
   /* Write output. */
-  t8_step5_output_data_to_vtu (forest, data, "forest_with_data");
+  t8_output_data_to_vtu (forest, data, "forest_with_data");
   
   /* Adapt forest. */
-  forest = t8_step3_adapt_forest (forest);
+  forest = t8_adapt_forest (forest);
   
-  /* Write forest to vtu files. */
+  /* Write output. */
   t8_forest_write_vtk (forest, "forest_adapted");
 
   /* Free the data array. */
@@ -169,11 +172,11 @@ int main (int argc, char **argv) {
    Definitions...
    ------------------------------------------------------------ */
 
-t8_forest_t t8_step3_adapt_forest (t8_forest_t forest) {
+t8_forest_t t8_adapt_forest (t8_forest_t forest) {
   
   t8_forest_t         forest_adapt;
   
-  struct t8_step3_adapt_data adapt_data = {
+  struct t8_adapt_data adapt_data = {
     {0.5, 0.5, 0},              /* Midpoints of the sphere. */
     0.2,                        /* Refine if inside this radius. */
     0.4                         /* Coarsen if outside this radius. */
@@ -182,57 +185,36 @@ t8_forest_t t8_step3_adapt_forest (t8_forest_t forest) {
   /* Check that forest is a committed, that is valid and usable, forest. */
   T8_ASSERT (t8_forest_is_committed (forest));
   
-  /* Create a new forest that is adapted from \a forest with our adaptation callback.
-   * We provide the adapt_data as user data that is stored as the used_data pointer of the
-   * new forest (see also t8_forest_set_user_data).
-   * The 0, 0 arguments are flags that control
-   *   recursive  -    If non-zero adaptation is recursive, thus if an element is adapted the children
-   *                   or parents are plugged into the callback again recursively until the forest does not
-   *                   change any more. If you use this you should ensure that refinement will stop eventually.
-   *                   One way is to check the element's level against a given maximum level.
-   *   do_face_ghost - If non-zero additionally a layer of ghost elements is created for the forest.
-   *                   We will discuss ghost in later steps of the tutorial.
-   */
-  forest_adapt = t8_forest_new_adapt (forest, t8_step3_adapt_callback, 0, 0, &adapt_data);
-
+  /* Create a new forest that is adapted from a forest with our adaptation callback. */
+  forest_adapt = t8_forest_new_adapt (forest, t8_adapt_callback, 0, 0, &adapt_data);
+  
   return forest_adapt;
 }
 
 /*****************************************************************/
 
-int t8_step3_adapt_callback (t8_forest_t forest,
-			     t8_forest_t forest_from,
-			     t8_locidx_t which_tree,
-			     t8_locidx_t lelement_id,
-			     t8_eclass_scheme_c *ts,
-			     const int is_family,
-			     const int num_elements,
-			     t8_element_t *elements[]) {
+int t8_adapt_callback (t8_forest_t forest,
+		       t8_forest_t forest_from,
+		       t8_locidx_t which_tree,
+		       t8_locidx_t lelement_id,
+		       t8_eclass_scheme_c *ts,
+		       const int is_family,
+		       const int num_elements,
+		       t8_element_t *elements[]) {
   
-  /* Our adaptation criterion is to look at the midpoint coordinates of the current element and if
-   * they are inside a sphere around a given midpoint we refine, if they are outside, we coarsen. */
-  double centroid[3];      /* Will hold the element midpoint. */
-  
-  /* In t8_step3_adapt_forest we pass a t8_step3_adapt_data pointer as user data to the
+  /* In t8_adapt_forest we pass a t8_adapt_data pointer as user data to the
    * t8_forest_new_adapt function. This pointer is stored as the used data of the new forest
    * and we can now access it with t8_forest_get_user_data (forest). */
-  const struct t8_step3_adapt_data *adapt_data =
-    (const struct t8_step3_adapt_data *) t8_forest_get_user_data (forest);
-  
-  double dist;     /* Will store the distance of the element's midpoint and the sphere midpoint. */
-
-  /* You can use T8_ASSERT for assertions that are active in debug mode (when configured with --enable-debug).
-   * If the condition is not true, then the code will abort.
-   * In this case, we want to make sure that we actually did set a user pointer to forest and thus
-   * did not get the NULL pointer from t8_forest_get_user_data.
-   */
+  const struct t8_adapt_data *adapt_data =
+    (const struct t8_adapt_data *) t8_forest_get_user_data (forest);
   T8_ASSERT (adapt_data != NULL);
-
+  
   /* Compute the element's centroid coordinates. */
+  double centroid[3];
   t8_forest_element_centroid (forest_from, which_tree, elements[0], centroid);
-
+  
   /* Compute the distance to our sphere midpoint. */
-  dist = t8_vec_dist (centroid, adapt_data->midpoint);
+  double dist = t8_vec_dist (centroid, adapt_data->midpoint);
   if (dist < adapt_data->refine_if_inside_radius) {
     
     /* Refine this element. */
@@ -251,28 +233,28 @@ int t8_step3_adapt_callback (t8_forest_t forest,
 
 /*****************************************************************/
 
-static struct t8_step5_data_per_element *t8_step5_create_element_data (t8_forest_t forest,
-								       double x[EX],
-								       double y[EY],
-								       double z[EX][EY],
-								       int nx,
-								       int ny) {
+static struct t8_data_per_element *t8_create_element_data (t8_forest_t forest,
+							   double x[EX],
+							   double y[EY],
+							   double z[EX][EY],
+							   int nx,
+							   int ny) {
   
   t8_locidx_t         num_local_elements;
   t8_locidx_t         num_ghost_elements;
-  struct t8_step5_data_per_element *element_data;
+  struct t8_data_per_element *element_data;
 
-  /* Check that forest is a committed, that is valid and usable, forest. */
+  /* Check that forest is committed, that is valid and usable, forest. */
   T8_ASSERT (t8_forest_is_committed (forest));
 
-  /* Get the number of local elements of forest. */
+  /* Get the number of local elements of the forest. */
   num_local_elements = t8_forest_get_local_num_elements (forest);
   
-  /* Get the number of ghost elements of forest. */
+  /* Get the number of ghost elements of the forest. */
   num_ghost_elements = t8_forest_get_num_ghosts (forest);
 
   /* Alloc... */
-  element_data = T8_ALLOC (struct t8_step5_data_per_element,
+  element_data = T8_ALLOC (struct t8_data_per_element,
 			   num_local_elements + num_ghost_elements);
 
   /* Let us now fill the data with something.
@@ -347,9 +329,9 @@ static struct t8_step5_data_per_element *t8_step5_create_element_data (t8_forest
 
 /*****************************************************************/
 
-static void t8_step5_output_data_to_vtu (t8_forest_t forest,
-					 struct t8_step5_data_per_element *data,
-					 const char *prefix) {
+static void t8_output_data_to_vtu (t8_forest_t forest,
+				   struct t8_data_per_element *data,
+				   const char *prefix) {
   
   t8_locidx_t num_elements = t8_forest_get_local_num_elements (forest);
   t8_locidx_t ielem;
