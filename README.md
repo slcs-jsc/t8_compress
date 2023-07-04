@@ -2,7 +2,7 @@
 
 ## Features
 
-- Software package to learn how to apply the adaptive mesh library `t8code` for compression of 2-D or 3-D data fields.
+- Software package to learn how to apply the adaptive mesh library `t8code` for compression of 2-D or 3-D meteorological data fields.
 
 ## Installation
 
