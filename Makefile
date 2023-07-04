@@ -34,8 +34,11 @@ all: $(EXC)
 $(EXC): %: %.cxx
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
+check: all
+	./t8_compress data/temp.xyz 5
+
 clean:
-	rm -rf $(EXC) *.o *~
+	rm -rf $(EXC) *.o *~ forest*
 
 cppcheck:
 	cppcheck --enable=all ./
