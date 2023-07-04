@@ -41,4 +41,4 @@ cppcheck:
 	cppcheck --enable=all ./
 
 indent:
-	indent -br -brf -brs -bfda -ce -cdw -lp -npcs -npsl *.c *.h
+	indent -br -brf -brs -bfda -ce -cdw -lp -npcs -npsl *.cxx *.h
