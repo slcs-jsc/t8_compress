@@ -196,37 +196,37 @@ int main(
   data->midpoint[2] = 0.0;
   data->refine_if_inside_radius = 0.2;
   data->coarsen_if_outside_radius = 0.4;
-  
+
   t8_data_per_element *elem_data;
   elem_data = T8_ALLOC(t8_data_per_element, 1);
   elem_data = t8_create_element_data(forest, x, y, z, nx, ny);
   data->element_data =
     sc_array_new_count(sizeof(t8_data_per_element),
 		       t8_forest_get_local_num_elements(forest));
-  
+
   //printf("  num_elements: %d\n", t8_forest_get_local_num_elements(forest));
-  
+
   /* Write output. */
   t8_output_data_to_vtu(forest, elem_data, "forest_with_data");
-  
+
   /* Build a second forest to store the adapted forest - keep the old one */
   t8_forest_ref(forest);
-  
+
   /* Adapt forest. */
   t8_forest_t forest_adapt =
     t8_adapt_forest(forest, t8_adapt_callback, 0, 0, data);
-  
+
   // printf("  num_elements: %d\n", t8_forest_get_local_num_elements(forest_adapt));
-  
+
   /* Write output (the forest was adapted, but the data was not adapted, yet... */
   t8_output_data_to_vtu(forest_adapt, elem_data, "forest_adapted");
-  
+
   /* Build data array for the adapted forest */
   struct t8_adapt_data *adapt_data = T8_ALLOC(t8_adapt_data, 1);
   adapt_data->element_data =
     sc_array_new_count(sizeof(t8_data_per_element),
 		       t8_forest_get_local_num_elements(forest_adapt));
-  
+
   /* Set data for the adapted forest */
   (*adapt_data).midpoint[0] = (*data).midpoint[0];
   (*adapt_data).midpoint[1] = (*data).midpoint[1];

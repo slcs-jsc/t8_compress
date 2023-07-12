@@ -3,10 +3,11 @@
 # -----------------------------------------------------------------------------
 
 # List of executables...
-EXC = t8_compress
+EXC = t8_compress t8_compress_v2
 
 # Include directories...
-INCDIR += -I /home/lars/wrk/t8code/build/local/include
+INCDIR += -I /home/lars/wrk/t8code/build/local/include -I /home/lars/wrk/t8code/t8code/src/t8_forest -I /home/lars/wrk/t8code/t8code/src/t8_cmesh
+
 
 # Library directories...
 LIBDIR += -L /home/lars/wrk/t8code/build/local/lib
