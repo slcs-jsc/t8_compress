@@ -13,6 +13,43 @@
 #include "t8_cmesh/t8_cmesh_testcases.h"
 #include <t8_forest/t8_forest_partition.h>
 
+/* ------------------------------------------------------------
+   Constants...
+   ------------------------------------------------------------ */
+
+/* Maximum number of x values. */
+#define EX 2048
+
+/* Maximum number of y values. */
+#define EY 1024
+
+/* Maximum length of ASCII strings. */
+#define LEN 4096
+
+/* ------------------------------------------------------------
+   Macros...
+   ------------------------------------------------------------ */
+
+/*! Print error message and quit program. */
+#define ERRMSG(text) {				\
+    fprintf(stderr, "%s", text);		\
+    exit(1);					\
+  }
+
+/*! Compute linear interpolation. */
+#define LIN(x0, y0, x1, y1, x)			\
+  ((y0)+((y1)-(y0))/((x1)-(x0))*((x)-(x0)))
+
+/* ------------------------------------------------------------
+   Declarations...
+   ------------------------------------------------------------ */
+
+/*! Find array index for irregular grid. */
+int locate_irr(
+  double *xx,
+  int n,
+  double x);
+
 struct t8_step7_element_data_t {
   double values;
 };
@@ -197,24 +234,71 @@ static void t8_write_vtu(
   T8_FREE(element_data);
 }
 
-void t8_interpolation(
-  ) {
+/* ------------------------------------------------------------
+   Main...
+   ------------------------------------------------------------ */
 
-  int level = 4;
+int main(
+  int argc,
+  char **argv) {
+  
+  /* Check arguments... */
+  if (argc != 3)
+    ERRMSG("usage: give parameters <data.tab> <maxlev>\n");
+
+  /* Set variables... */
+  int level = atoi(argv[2]);
+
+  /* Read data file... */
+  FILE *in;
+  if (!(in = fopen(argv[1], "r")))
+    ERRMSG("Cannot open file!");
+
+  /* Read data... */
+  char line[LEN];
+  static double rx, ry, ry_old = -1e99, rz, x[EX], y[EY], z[EX][EY];
+  int nx = 1, ny = -1;
+  while (fgets(line, LEN, in))
+    if (sscanf(line, "%lg %lg %lg", &rx, &ry, &rz) == 3) {
+      if (ry != ry_old) {
+	if ((++ny) >= EY)
+	  ERRMSG("Too many y values!");
+	nx = -1;
+	ry_old = ry;
+      }
+      if ((++nx) >= EX)
+	ERRMSG("Too many x values!");
+      x[nx] = rx;
+      y[ny] = ry;
+      z[nx][ny] = rz;
+    }
+  if ((++nx) >= EX)
+    ERRMSG("Too many x values!");
+  if ((++ny) >= EY)
+    ERRMSG("Too many y values!");
+
+  /* Close file... */
+  fclose(in);
+  
+  /* Initialize... */
+  int mpiret = sc_MPI_Init(&argc, &argv);
+  SC_CHECK_MPI(mpiret);
+  sc_init(sc_MPI_COMM_WORLD, 1, 1, NULL, SC_LP_PRODUCTION);
+  t8_init(SC_LP_PRODUCTION);
+  
   t8_forest_t forest_adapt;
   t8_step7_element_data_t *elem_data;
   t8_step7_adapt_data *data;
   double centroid[3];
-  const double midpoint[3] = { 0.5, 0.5, 1 };
-  t8_scheme_cxx_t *scheme = t8_scheme_new_default_cxx();
+  const double midpoint[3] = { 0.5, 0.5, 0 };
 
   /* Construct a cmesh */
   t8_cmesh_t cmesh =
-    t8_cmesh_new_from_class(T8_ECLASS_HEX, sc_MPI_COMM_WORLD);
-
+    t8_cmesh_new_hypercube(T8_ECLASS_QUAD, sc_MPI_COMM_WORLD, 0, 0, 0);
+  
   /* Construct a forest with one tree */
   t8_forest_t forest =
-    t8_forest_new_uniform(cmesh, scheme, level, 0, sc_MPI_COMM_WORLD);
+    t8_forest_new_uniform(cmesh, t8_scheme_new_default_cxx(), level, 0, sc_MPI_COMM_WORLD);
 
   /* Build initial data array and set data for the local elements. */
   data = T8_ALLOC(t8_step7_adapt_data, 1);
@@ -224,27 +308,34 @@ void t8_interpolation(
 		       t8_forest_get_local_num_elements(forest));
 
   const t8_locidx_t num_trees = t8_forest_get_num_local_trees(forest);
-  /* Loop over all trees. The index of the data array is independent of the tree
-   * index. Thus, we set the index of the tree index to zero and add one in each 
-   * loop step of the inner loop.
-   */
-  int itree;
-  int ielem;
-  for (itree = 0, ielem = 0; itree < num_trees; itree++) {
+  
+  for (int itree = 0, ielem = 0; itree < num_trees; itree++) {
+    
     const t8_locidx_t num_elem =
       t8_forest_get_tree_num_elements(forest, itree);
+    
     /* Inner loop: Iteration over the elements of the local tree */
-    for (t8_locidx_t ielem_tree = 0; ielem_tree < num_elem;
-	 ielem_tree++, ielem++) {
+    for (t8_locidx_t ielem_tree = 0; ielem_tree < num_elem; ielem_tree++, ielem++) {
+      
       /* To calculate the distance to the centroid of an element the element is saved */
       const t8_element_t *element =
 	t8_forest_get_element_in_tree(forest, itree, ielem_tree);
 
       /* Get the centroid of the local element. */
       t8_forest_element_centroid(forest, itree, element, centroid);
-
+      
+      /* Interpolate data... */
+      double gx = x[0] + (x[nx - 1] - x[0]) * centroid[0];
+      double gy = y[0] + (y[ny - 1] - y[0]) * centroid[1];
+      
+      int ix = locate_irr(x, nx, gx);
+      int iy = locate_irr(y, ny, gy);
+      
+      double y0 = LIN(x[ix], z[ix][iy], x[ix + 1], z[ix + 1][iy], gx);
+      double y1 = LIN(x[ix], z[ix][iy + 1], x[ix + 1], z[ix + 1][iy + 1], gx);
+      
       /* Calculation of the distance to the centroid for the referenced element */
-      elem_data->values = t8_vec_dist(centroid, midpoint);
+      elem_data->values = LIN(y[iy], y0, y[iy + 1], y1, gy);
 
       t8_element_set_element(data, ielem, *elem_data);
     }
@@ -253,7 +344,7 @@ void t8_interpolation(
   /*  Set the data elements which will be set as user elements on the forest */
   data->midpoint[0] = 0.5;
   data->midpoint[1] = 0.5;
-  data->midpoint[2] = 1;
+  data->midpoint[2] = 0;
   data->refine_if_inside_radius = 0.2;
   data->coarsen_if_outside_radius = 0.4;
 
@@ -305,25 +396,41 @@ void t8_interpolation(
   T8_FREE(data);
   T8_FREE(adapt_data);
   T8_FREE(elem_data);
-}
-
-int main(
-  int argc,
-  char **argv) {
-
-  /* Initialize... */
-  int mpiret = sc_MPI_Init(&argc, &argv);
-  SC_CHECK_MPI(mpiret);
-  sc_init(sc_MPI_COMM_WORLD, 1, 1, NULL, SC_LP_PRODUCTION);
-  t8_init(SC_LP_PRODUCTION);
   
-  /* Create forest, define data on forest, adapt forest, interpolate data */
-  t8_interpolation();
-
   /* Finalize... */
   sc_finalize();
   mpiret = sc_MPI_Finalize();
   SC_CHECK_MPI(mpiret);
 
   return 0;
+}
+
+/*****************************************************************************/
+
+int locate_irr(
+  double *xx,
+  int n,
+  double x) {
+
+  int ilo = 0;
+  int ihi = n - 1;
+  int i = (ihi + ilo) >> 1;
+
+  if (xx[i] < xx[i + 1])
+    while (ihi > ilo + 1) {
+      i = (ihi + ilo) >> 1;
+      if (xx[i] > x)
+	ihi = i;
+      else
+	ilo = i;
+  } else
+    while (ihi > ilo + 1) {
+      i = (ihi + ilo) >> 1;
+      if (xx[i] <= x)
+	ihi = i;
+      else
+	ilo = i;
+    }
+
+  return ilo;
 }
