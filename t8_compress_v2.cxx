@@ -55,9 +55,8 @@ typedef struct element_data_t {
 } element_data_t;
 
 typedef struct adapt_data_t {
-  double midpoint[3];		/* The midpoint of our sphere. */
-  double refine_if_inside_radius;	/* if an element's center is smaller than this value, we refine the element. */
-  double coarsen_if_outside_radius;	/* if an element's center is larger this value, we coarsen its family. */
+  double zmin;
+  double zmax;
   sc_array_t *element_data;
 } adapt_data_t;
 
@@ -99,29 +98,27 @@ int adapt_callback(
   const int num_elements,
   t8_element_t * elements[]) {
 
-  double centroid[3];
-
   const struct adapt_data_t *adapt_data =
     (const struct adapt_data_t *) t8_forest_get_user_data(forest);
 
   T8_ASSERT(adapt_data != NULL);
-  
-  t8_forest_element_centroid(forest_from, which_tree, elements[0], centroid);
 
-  double dist = t8_vec_dist(centroid, adapt_data->midpoint);
-  
-  if (dist < adapt_data->refine_if_inside_radius) {
-    
-    /* Refine element. */
+  /* Get element data. */
+  element_data_t elem_data
+    = t8_element_get_value(adapt_data, lelement_id);
+  double z=elem_data.values;
+
+  /* Refine element. */
+  if(z>adapt_data->zmax)
     return 1;
-  } else if (is_family && dist > adapt_data->coarsen_if_outside_radius) {
-    
-    /* Coarsen element. */
+
+  /* Coarsen element. */
+  else if(z<adapt_data->zmin)
     return -1;
-  }
-  
+
   /* Do not change element. */
-  return 0;
+  else
+    return 0;
 }
 
 t8_forest_t t8_adapt_forest(
@@ -235,11 +232,13 @@ int main(
   char **argv) {
   
   /* Check arguments... */
-  if (argc != 3)
-    ERRMSG("usage: give parameters <data.tab> <maxlev>\n");
+  if (argc != 5)
+    ERRMSG("usage: give parameters <data.tab> <maxlev> <zmin> <zmax>\n");
 
   /* Set variables... */
   int level = atoi(argv[2]);
+  double zmin = atof(argv[3]);
+  double zmax = atof(argv[4]);
 
   /* Read data file... */
   FILE *in;
@@ -333,11 +332,8 @@ int main(
   }
 
   /*  Set the data elements which will be set as user elements on the forest */
-  data->midpoint[0] = 0.5;
-  data->midpoint[1] = 0.5;
-  data->midpoint[2] = 0;
-  data->refine_if_inside_radius = 0.2;
-  data->coarsen_if_outside_radius = 0.4;
+  data->zmin = zmin;
+  data->zmax = zmax;
 
   /* Set the user data (values for callback and element values) */
   t8_forest_set_user_data(forest, data);
@@ -359,11 +355,8 @@ int main(
 		       t8_forest_get_local_num_elements(forest_adapt));
 
   /* Initialize user_data element for the adapted forest */
-  (*adapt_data).midpoint[0] = (*data).midpoint[0];
-  (*adapt_data).midpoint[1] = (*data).midpoint[1];
-  (*adapt_data).midpoint[2] = (*data).midpoint[2];
-  (*adapt_data).refine_if_inside_radius = (*data).refine_if_inside_radius;
-  (*adapt_data).coarsen_if_outside_radius = (*data).coarsen_if_outside_radius;
+  (*adapt_data).zmin = (*data).zmin;
+  (*adapt_data).zmax = (*data).zmax;
 
   t8_forest_set_user_data(forest_adapt, adapt_data);
   t8_forest_iterate_replace(forest_adapt, forest, t8_forest_replace);
