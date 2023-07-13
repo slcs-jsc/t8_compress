@@ -50,43 +50,46 @@ int locate_irr(
   int n,
   double x);
 
-struct t8_step7_element_data_t {
+typedef struct element_data_t {
   double values;
-};
+} element_data_t;
 
-typedef struct t8_step7_adapt_data {
+typedef struct adapt_data_t {
   double midpoint[3];		/* The midpoint of our sphere. */
   double refine_if_inside_radius;	/* if an element's center is smaller than this value, we refine the element. */
   double coarsen_if_outside_radius;	/* if an element's center is larger this value, we coarsen its family. */
   sc_array_t *element_data;
-} t8_step7_adapt_data;
+} adapt_data_t;
 
 static void t8_element_set_value(
-  const t8_step7_adapt_data * adapt_data,
+  const adapt_data_t * adapt_data,
   t8_locidx_t ielement,
   double value) {
-  t8_step7_element_data_t elem_data;
+  
+  element_data_t elem_data;
   elem_data.values = value;
-  *((t8_step7_element_data_t *)
+  *((element_data_t *)
     t8_sc_array_index_locidx(adapt_data->element_data, ielement)) = elem_data;
 }
 
 static void t8_element_set_element(
-  const t8_step7_adapt_data * adapt_data,
+  const adapt_data_t * adapt_data,
   t8_locidx_t ielement,
-  t8_step7_element_data_t element) {
-  *((t8_step7_element_data_t *)
+  element_data_t element) {
+  
+  *((element_data_t *)
     t8_sc_array_index_locidx(adapt_data->element_data, ielement)) = element;
 }
 
-static t8_step7_element_data_t t8_element_get_value(
-  const t8_step7_adapt_data * adapt_data,
+static element_data_t t8_element_get_value(
+  const adapt_data_t * adapt_data,
   t8_locidx_t ielement) {
-  return *((t8_step7_element_data_t *)
+  
+  return *((element_data_t *)
 	   t8_sc_array_index_locidx((adapt_data->element_data), ielement));
 }
 
-int t8_step7_adapt_callback(
+int adapt_callback(
   t8_forest_t forest,
   t8_forest_t forest_from,
   t8_locidx_t which_tree,
@@ -96,37 +99,28 @@ int t8_step7_adapt_callback(
   const int num_elements,
   t8_element_t * elements[]) {
 
-  /* Our adaptation criterion is to look at the midpoint coordinates of the current element and if
-   * they are inside a sphere around a given midpoint we refine, if they are outside, we coarsen. */
-  double centroid[3];		/* Will hold the element midpoint. */
-  /* In t8_step3_adapt_forest we pass a t8_step3_adapt_data pointer as user data to the
-   * t8_forest_new_adapt function. This pointer is stored as the used data of the new forest
-   * and we can now access it with t8_forest_get_user_data (forest). */
-  const struct t8_step7_adapt_data *adapt_data =
-    (const struct t8_step7_adapt_data *) t8_forest_get_user_data(forest);
-  double dist;			/* Will store the distance of the element's midpoint and the sphere midpoint. */
+  double centroid[3];
 
-  /* You can use T8_ASSERT for assertions that are active in debug mode (when configured with --enable-debug).
-   * If the condition is not true, then the code will abort.
-   * In this case, we want to make sure that we actually did set a user pointer to forest and thus
-   * did not get the NULL pointer from t8_forest_get_user_data.
-   */
+  const struct adapt_data_t *adapt_data =
+    (const struct adapt_data_t *) t8_forest_get_user_data(forest);
+
   T8_ASSERT(adapt_data != NULL);
-
-  /* Compute the element's centroid coordinates. */
+  
   t8_forest_element_centroid(forest_from, which_tree, elements[0], centroid);
 
-  /* Compute the distance to our sphere midpoint. */
-  dist = t8_vec_dist(centroid, adapt_data->midpoint);
+  double dist = t8_vec_dist(centroid, adapt_data->midpoint);
+  
   if (dist < adapt_data->refine_if_inside_radius) {
-    /* Refine this element. */
+    
+    /* Refine element. */
     return 1;
   } else if (is_family && dist > adapt_data->coarsen_if_outside_radius) {
-    /* Coarsen this family. Note that we check for is_family before, since returning < 0
-     * if we do not have a family as input is illegal. */
+    
+    /* Coarsen element. */
     return -1;
   }
-  /* Do not change this element. */
+  
+  /* Do not change element. */
   return 0;
 }
 
@@ -137,19 +131,20 @@ t8_forest_t t8_adapt_forest(
   int recursive,
   void *user_data) {
 
+  /* Init new forest */
   t8_forest_t forest_new;
-
   t8_forest_init(&forest_new);
+  
   /* Adapt the forest */
   t8_forest_set_adapt(forest_new, forest_from, adapt_fn, recursive);
-
+  
   /* Set user data for the adapted forest */
-  if (user_data != NULL) {
+  if (user_data != NULL)
     t8_forest_set_user_data(forest_new, user_data);
-  }
+  
   /* Commit the adapted forest */
   t8_forest_commit(forest_new);
-
+  
   return forest_new;
 }
 
@@ -164,36 +159,35 @@ void t8_forest_replace(
   int num_incoming,
   t8_locidx_t first_incoming) {
 
-  struct t8_step7_adapt_data *adapt_data_new =
-    (struct t8_step7_adapt_data *) t8_forest_get_user_data(forest_new);
-  const struct t8_step7_adapt_data *adapt_data_old =
-    (const struct t8_step7_adapt_data *) t8_forest_get_user_data(forest_old);
+  struct adapt_data_t *adapt_data_new =
+    (struct adapt_data_t *) t8_forest_get_user_data(forest_new);
+  const struct adapt_data_t *adapt_data_old =
+    (const struct adapt_data_t *) t8_forest_get_user_data(forest_old);
 
   /* get the index of the data array corresponding to the old and the adapted forest */
   first_incoming += t8_forest_get_tree_element_offset(forest_new, which_tree);
   first_outgoing += t8_forest_get_tree_element_offset(forest_old, which_tree);
 
   /* Do not adapt or coarsen */
-  if (refine == 0) {
+  if (refine == 0)
     t8_element_set_element(adapt_data_new, first_incoming,
 			   t8_element_get_value(adapt_data_old,
 						first_outgoing));
-  }
+  
   /* The old element is refined, we copy the element values */
-  else if (refine == 1) {
-    for (int i = 0; i < num_incoming; i++) {
+  else if (refine == 1)
+    for (int i = 0; i < num_incoming; i++)
       t8_element_set_element(adapt_data_new, first_incoming + i,
 			     t8_element_get_value(adapt_data_old,
 						  first_outgoing));
-    }
-  }
+  
   /* Old element is coarsened */
   else if (refine == -1) {
     double tmp_value = 0;
-    for (t8_locidx_t i = 0; i < num_outgoing; i++) {
+    for (t8_locidx_t i = 0; i < num_outgoing; i++)
       tmp_value +=
 	t8_element_get_value(adapt_data_old, first_outgoing + i).values;
-    }
+    
     t8_element_set_value(adapt_data_new, first_incoming,
 			 tmp_value / num_outgoing);
   }
@@ -202,27 +196,25 @@ void t8_forest_replace(
 
 static void t8_write_vtu(
   t8_forest_t forest,
-  struct t8_step7_adapt_data *data,
+  struct adapt_data_t *data,
   const char *prefix) {
 
   const t8_locidx_t num_elements = t8_forest_get_local_num_elements(forest);
-  /* We need to allocate a new array to store the volumes on their own.
-   * This array has one entry per local element. */
+
   double *element_data = T8_ALLOC(double, num_elements);
-  /* The number of user defined data fields to write. */
+
   int num_data = 1;
+  
   t8_vtk_data_field_t vtk_data;
+  
   vtk_data.type = T8_VTK_SCALAR;
   strcpy(vtk_data.description, "Element own data");
   vtk_data.data = element_data;
-  /* Copy the elment's data from the data array to the output array. */
+  
   for (t8_locidx_t ielem = 0; ielem < num_elements; ++ielem) {
     element_data[ielem] = t8_element_get_value(data, ielem).values;
   }
 
-  /* To write user defined data, we need to extended output function t8_forest_vtk_write_file
-   * from t8_forest_vtk.h. Despite writin user data, it also offers more control over which 
-   * properties of the forest to write. */
   int write_treeid = 1;
   int write_mpirank = 1;
   int write_level = 1;
@@ -287,11 +279,9 @@ int main(
   t8_init(SC_LP_PRODUCTION);
   
   t8_forest_t forest_adapt;
-  t8_step7_element_data_t *elem_data;
-  t8_step7_adapt_data *data;
-  double centroid[3];
-  const double midpoint[3] = { 0.5, 0.5, 0 };
-
+  element_data_t *elem_data;
+  adapt_data_t *data;
+  
   /* Construct a cmesh */
   t8_cmesh_t cmesh =
     t8_cmesh_new_hypercube(T8_ECLASS_QUAD, sc_MPI_COMM_WORLD, 0, 0, 0);
@@ -301,10 +291,10 @@ int main(
     t8_forest_new_uniform(cmesh, t8_scheme_new_default_cxx(), level, 0, sc_MPI_COMM_WORLD);
 
   /* Build initial data array and set data for the local elements. */
-  data = T8_ALLOC(t8_step7_adapt_data, 1);
-  elem_data = T8_ALLOC(t8_step7_element_data_t, 1);
+  data = T8_ALLOC(adapt_data_t, 1);
+  elem_data = T8_ALLOC(element_data_t, 1);
   data->element_data =
-    sc_array_new_count(sizeof(t8_step7_element_data_t),
+    sc_array_new_count(sizeof(element_data_t),
 		       t8_forest_get_local_num_elements(forest));
 
   const t8_locidx_t num_trees = t8_forest_get_num_local_trees(forest);
@@ -322,6 +312,7 @@ int main(
 	t8_forest_get_element_in_tree(forest, itree, ielem_tree);
 
       /* Get the centroid of the local element. */
+      double centroid[3];
       t8_forest_element_centroid(forest, itree, element, centroid);
       
       /* Interpolate data... */
@@ -358,13 +349,13 @@ int main(
   t8_forest_ref(forest);
 
   /* Adapt the forest correponding tho the callback function (distance to the centroid) */
-  forest_adapt = t8_adapt_forest(forest, t8_step7_adapt_callback, 0, 0, data);
+  forest_adapt = t8_adapt_forest(forest, adapt_callback, 0, 0, data);
   /* Calculate/Interpolate the data array for the adapted forest */
 
   /* Create user_data element for the adapted forest */
-  struct t8_step7_adapt_data *adapt_data = T8_ALLOC(t8_step7_adapt_data, 1);
+  struct adapt_data_t *adapt_data = T8_ALLOC(adapt_data_t, 1);
   adapt_data->element_data =
-    sc_array_new_count(sizeof(t8_step7_element_data_t),
+    sc_array_new_count(sizeof(element_data_t),
 		       t8_forest_get_local_num_elements(forest_adapt));
 
   /* Initialize user_data element for the adapted forest */
@@ -379,7 +370,7 @@ int main(
 
   /* Write the adapted forest to a vtu file */
   adapt_data =
-    (struct t8_step7_adapt_data *) t8_forest_get_user_data(forest_adapt);
+    (struct adapt_data_t *) t8_forest_get_user_data(forest_adapt);
   t8_write_vtu(forest_adapt, adapt_data, "t8_step7_adapt_forest");
 
   /* Free the memory */
