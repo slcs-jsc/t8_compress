@@ -343,7 +343,7 @@ int main(
   t8_forest_set_user_data(forest, data);
 
   /* Write vtu file */
-  t8_write_vtu(forest, data, "t8_step7_uniform_forest");
+  t8_write_vtu(forest, data, "forest_uniform");
 
   /* Build a second forest to store the adapted forest - keep the old one */
   t8_forest_ref(forest);
@@ -371,7 +371,7 @@ int main(
   /* Write the adapted forest to a vtu file */
   adapt_data =
     (struct adapt_data_t *) t8_forest_get_user_data(forest_adapt);
-  t8_write_vtu(forest_adapt, adapt_data, "t8_step7_adapt_forest");
+  t8_write_vtu(forest_adapt, adapt_data, "forest_adapt");
 
   /* Free the memory */
   sc_array_destroy(adapt_data->element_data);
