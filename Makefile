@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 
 # List of executables...
-EXC = t8_compress t8_compress_v2
+EXC = t8_compress
 
 # Include directories...
 INCDIR += -I /home/lars/wrk/t8code/build/local/include -I /home/lars/wrk/t8code/t8code/src/t8_forest -I /home/lars/wrk/t8code/t8code/src/t8_cmesh
@@ -36,7 +36,7 @@ $(EXC): %: %.cxx
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 check: all
-	./t8_compress data/temp.xyz 5
+	./t8_compress data/h2o.xyz 6 10e-6 100e-6
 
 clean:
 	rm -rf $(EXC) *.o *~ forest*
